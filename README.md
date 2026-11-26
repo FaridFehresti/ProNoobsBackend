@@ -32,7 +32,7 @@ All write routes require `X-API-Key: <ADMIN_API_KEY>`:
 
 - `POST /api/tournaments` — create a tournament. Use status `registration_open` to accept entries.
 - `PATCH /api/tournaments/:id` — update tournament details, dates, team limit, or status.
-- `POST /api/teams` — create a team with `name`, `captainDiscordName`, `captainAgreementAccepted: true`, and exactly five members. Each member needs a `displayName` (the Steam/Dota name) and non-negative integer `mmr`. Optional fields: `discordId`, `steamId`, `position`, and `isCaptain`. The first member becomes captain by default.
+- `POST /api/teams` — create a team with `name`, `captainDiscordName`, `captainAgreementAccepted: true`, and exactly five members. Each member needs a `displayName` (the Steam/Dota name) and non-negative integer `mmr`. Optional fields: `discordId`, `steamId`, `position`, and `isCaptain`. The first member is always the captain.
 - `PATCH /api/players/:id` — update a player's display name, MMR, Discord ID, or Steam ID.
 - `POST /api/tournaments/:id/registrations` with `{ "teamId": 1 }` — register an existing team while registration is open and capacity remains.
 - `PATCH /api/registrations/:id` with `{ "status": "approved" }` — set registration status to `pending`, `approved`, `rejected`, or `withdrawn`.
