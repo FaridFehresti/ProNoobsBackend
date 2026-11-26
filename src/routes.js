@@ -1,9 +1,45 @@
 const express = require('express');
+const multer = require('multer');
+const crypto = require('node:crypto');
+const fs = require('node:fs/promises');
+const path = require('node:path');
 const { pool } = require('./db');
 const { requireAdminKey } = require('./middleware/admin-key');
+const { deleteStagedLogo, deleteTeamLogo, getLogoExtension, logoUrl, saveTeamLogo, uploadRoot } = require('./storage/team-logos');
 
 const router = express.Router();
 const write = requireAdminKey;
+const stagingDirectory = path.join(uploadRoot, '.staging');
+const logoUpload = multer({
+  storage: multer.diskStorage({
+    destination(_req, _file, callback) {
+      fs.mkdir(stagingDirectory, { recursive: true }).then(
+        () => callback(null, stagingDirectory), callback,
+      );
+    },
+    filename(_req, _file, callback) {
+      callback(null, `${crypto.randomUUID()}.upload`);
+    },
+  }),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 0, parts: 1 },
+  fileFilter(_req, file, callback) {
+    if (['image/png', 'image/jpeg', 'image/webp'].includes(file.mimetype)) return callback(null, true);
+    callback(new Error('Team logos must be PNG, JPEG, or WebP images.'));
+  },
+});
+
+function parseLogoUpload(req, res, next) {
+  logoUpload.single('logo')(req, res, (error) => {
+    if (!error) return next();
+    if (error instanceof multer.MulterError) {
+      const tooLarge = error.code === 'LIMIT_FILE_SIZE';
+      return res.status(tooLarge ? 413 : 400).json({
+        error: tooLarge ? 'Team logos must be 5 MB or smaller.' : 'Upload one logo using the "logo" file field.',
+      });
+    }
+    return res.status(400).json({ error: error.message || 'Invalid logo upload.' });
+  });
+}
 
 function integerId(value) {
   return /^\d+$/.test(value) && Number(value) > 0;
@@ -79,7 +115,7 @@ router.patch('/tournaments/:id', write, asyncRoute(async (req, res) => {
 
 const teamSelect = `SELECT t.id, t.name, t.captain_discord_name AS "captainDiscordName",
        (t.captain_agreement_accepted_at IS NOT NULL) AS "captainAgreementAccepted",
-       t.created_at AS "createdAt",
+       ('/uploads/' || t.logo_path) AS "logoUrl", t.created_at AS "createdAt",
        COALESCE(json_agg(json_build_object('id', p.id, 'displayName', p.display_name,
          'mmr', p.mmr, 'position', tm.position, 'isCaptain', tm.is_captain)
          ORDER BY tm.is_captain DESC, p.id)
@@ -97,6 +133,52 @@ router.get('/teams/:id', asyncRoute(async (req, res) => {
   const { rows } = await pool.query(`${teamSelect} WHERE t.id = $1 GROUP BY t.id`, [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: 'Team not found.' });
   res.json(rows[0]);
+}));
+
+router.put('/teams/:id/logo', write, (req, res, next) => {
+  if (!integerId(req.params.id)) return res.status(400).json({ error: 'Invalid team id.' });
+  next();
+}, parseLogoUpload, asyncRoute(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Upload a logo in the "logo" file field.' });
+  let extension;
+  try {
+    extension = await getLogoExtension(req.file);
+  } catch (error) {
+    await deleteStagedLogo(req.file.path);
+    throw error;
+  }
+  if (!extension) {
+    await deleteStagedLogo(req.file.path);
+    return res.status(400).json({ error: 'The uploaded file is not a valid PNG, JPEG, or WebP image.' });
+  }
+
+  const { rows: existingRows } = await pool.query('SELECT logo_path FROM teams WHERE id = $1', [req.params.id]);
+  if (!existingRows[0]) {
+    await deleteStagedLogo(req.file.path);
+    return res.status(404).json({ error: 'Team not found.' });
+  }
+
+  let storedPath;
+  try {
+    storedPath = await saveTeamLogo(req.params.id, req.file, extension);
+  } catch (error) {
+    await deleteStagedLogo(req.file.path);
+    throw error;
+  }
+  try {
+    const { rows } = await pool.query(
+      'UPDATE teams SET logo_path = $1 WHERE id = $2 RETURNING id', [storedPath, req.params.id],
+    );
+    if (!rows[0]) {
+      await deleteTeamLogo(storedPath);
+      return res.status(404).json({ error: 'Team not found.' });
+    }
+  } catch (error) {
+    await deleteTeamLogo(storedPath);
+    throw error;
+  }
+  void deleteTeamLogo(existingRows[0].logo_path).catch((error) => console.error('Could not remove replaced team logo:', error));
+  res.json({ id: req.params.id, logoUrl: logoUrl(storedPath) });
 }));
 
 router.patch('/players/:id', write, asyncRoute(async (req, res) => {
@@ -174,6 +256,7 @@ router.post('/teams', write, asyncRoute(async (req, res) => {
       name: team.name,
       captainDiscordName: team.captain_discord_name,
       captainAgreementAccepted: true,
+      logoUrl: null,
       createdAt: team.created_at,
       members: resultMembers,
     });

@@ -4,6 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const { pool } = require('./db');
 const api = require('./routes');
+const { uploadRoot } = require('./storage/team-logos');
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
@@ -17,6 +18,10 @@ app.use((req, _res, next) => {
   req.body = req.body || {};
   next();
 });
+app.use('/uploads', (_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  next();
+}, express.static(uploadRoot, { dotfiles: 'deny', index: false, maxAge: '1d', immutable: true }));
 
 app.get('/health', async (_req, res) => {
   try {
