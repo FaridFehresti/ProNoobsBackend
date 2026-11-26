@@ -47,6 +47,10 @@ The first migration creates tournaments, teams, players, team memberships, and t
 
 The captain agreement covers responsibility for the team's participation and organization, best efforts to follow tournament rules including the fair-play MMR cap and a non-toxic environment, and communication with organizers about questions or changes.
 
+## Discord integration architecture
+
+The Discord bot is the always-on process that maintains the Discord Gateway connection and performs role, channel, and message actions. The API stores tournament/team state and serves HTTP requests; it should not hold the bot token or impersonate the Gateway connection. The bot calls the API for reads and writes. When the future website admin panel needs to trigger Discord actions, add a durable job/outbox for the bot to consume, acknowledge, and retry safely. Keep guild IDs, channel IDs, category IDs, and role IDs in bot configuration until the admin panel stores them as editable settings.
+
 Upload a logo with:
 
 ```bash
