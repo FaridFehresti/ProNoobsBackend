@@ -77,18 +77,26 @@ router.patch('/tournaments/:id', write, asyncRoute(async (req, res) => {
   res.json(rows[0]);
 }));
 
-router.get('/teams', asyncRoute(async (_req, res) => {
-  const { rows } = await pool.query(
-    `SELECT t.id, t.name, t.created_at,
+const teamSelect = `SELECT t.id, t.name, t.captain_discord_name AS "captainDiscordName",
+       (t.captain_agreement_accepted_at IS NOT NULL) AS "captainAgreementAccepted",
+       t.created_at AS "createdAt",
        COALESCE(json_agg(json_build_object('id', p.id, 'displayName', p.display_name,
-         'discordId', p.discord_id, 'steamId', p.steam_id, 'mmr', p.mmr,
-         'position', tm.position, 'isCaptain', tm.is_captain))
+         'mmr', p.mmr, 'position', tm.position, 'isCaptain', tm.is_captain)
+         ORDER BY tm.is_captain DESC, p.id)
          FILTER (WHERE p.id IS NOT NULL), '[]') AS members
      FROM teams t LEFT JOIN team_members tm ON tm.team_id = t.id
-     LEFT JOIN players p ON p.id = tm.player_id
-     GROUP BY t.id ORDER BY t.id DESC`,
-  );
+     LEFT JOIN players p ON p.id = tm.player_id`;
+
+router.get('/teams', asyncRoute(async (_req, res) => {
+  const { rows } = await pool.query(`${teamSelect} GROUP BY t.id ORDER BY t.id DESC`);
   res.json(rows);
+}));
+
+router.get('/teams/:id', asyncRoute(async (req, res) => {
+  if (!integerId(req.params.id)) return res.status(400).json({ error: 'Invalid team id.' });
+  const { rows } = await pool.query(`${teamSelect} WHERE t.id = $1 GROUP BY t.id`, [req.params.id]);
+  if (!rows[0]) return res.status(404).json({ error: 'Team not found.' });
+  res.json(rows[0]);
 }));
 
 router.patch('/players/:id', write, asyncRoute(async (req, res) => {
@@ -114,22 +122,29 @@ router.patch('/players/:id', write, asyncRoute(async (req, res) => {
 }));
 
 router.post('/teams', write, asyncRoute(async (req, res) => {
-  const { name, members } = req.body;
-  if (!validText(name) || !Array.isArray(members) || members.length < 1 || members.length > 10) {
-    return res.status(400).json({ error: 'Provide a team name and between 1 and 10 members.' });
+  const { name, captainDiscordName, captainAgreementAccepted, members } = req.body;
+  if (!validText(name) || !validText(captainDiscordName) || captainAgreementAccepted !== true ||
+      !Array.isArray(members) || members.length !== 5) {
+    return res.status(400).json({ error: 'Provide a team name, captain Discord name, accepted captain agreement, and exactly five members.' });
   }
-  const invalidMember = members.some((member) => !validText(member.displayName) ||
+  const invalidMember = members.some((member, index) => member == null || typeof member !== 'object' ||
+    !validText(member.displayName) ||
     !Number.isInteger(member.mmr) || member.mmr < 0 ||
+    (member.isCaptain === true && index !== 0) ||
     (member.discordId != null && typeof member.discordId !== 'string') ||
     (member.steamId != null && typeof member.steamId !== 'string') ||
     (member.position != null && typeof member.position !== 'string') ||
     (member.isCaptain != null && typeof member.isCaptain !== 'boolean'));
-  if (invalidMember) return res.status(400).json({ error: 'Each member needs a displayName and non-negative integer mmr.' });
+  if (invalidMember) return res.status(400).json({ error: 'Each of the five members needs a displayName and non-negative integer mmr.' });
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const teamResult = await client.query('INSERT INTO teams (name) VALUES ($1) RETURNING *', [name.trim()]);
+    const teamResult = await client.query(
+      `INSERT INTO teams (name, captain_discord_name, captain_agreement_accepted_at, captain_agreement_version)
+       VALUES ($1, $2, now(), $3) RETURNING *`,
+      [name.trim(), captainDiscordName.trim(), 'pronoobs-captain-agreement-v1'],
+    );
     const team = teamResult.rows[0];
     const resultMembers = [];
     for (const [index, member] of members.entries()) {
@@ -140,15 +155,28 @@ router.post('/teams', write, asyncRoute(async (req, res) => {
       );
       const player = playerResult.rows[0];
       const position = member.position == null ? null : String(member.position).slice(0, 40);
-      const isCaptain = member.isCaptain === true || (index === 0 && !members.some((m) => m.isCaptain === true));
+      const isCaptain = index === 0;
       await client.query(
         'INSERT INTO team_members (team_id, player_id, position, is_captain) VALUES ($1, $2, $3, $4)',
         [team.id, player.id, position, isCaptain],
       );
-      resultMembers.push({ ...player, position, isCaptain });
+      resultMembers.push({
+        id: player.id,
+        displayName: player.display_name,
+        mmr: player.mmr,
+        position,
+        isCaptain,
+      });
     }
     await client.query('COMMIT');
-    res.status(201).json({ ...team, members: resultMembers });
+    res.status(201).json({
+      id: team.id,
+      name: team.name,
+      captainDiscordName: team.captain_discord_name,
+      captainAgreementAccepted: true,
+      createdAt: team.created_at,
+      members: resultMembers,
+    });
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
