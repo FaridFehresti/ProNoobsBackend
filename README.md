@@ -12,10 +12,10 @@ From this directory, create the database and apply the schema:
 ```bash
 createdb pronoobs
 psql -d pronoobs -f migrations/001_initial_schema.sql
-npm install
+pnpm install
 ```
 
-Copy `.env.example` to `.env`. Set `DATABASE_URL`, create a long random `ADMIN_API_KEY`, and configure `CORS_ORIGINS` with the website's full origin(s), comma-separated. Start the API with `npm run dev` for development or `npm start` for production. It listens on port 3000 by default.
+Copy `.env.example` to `.env`. Set `DATABASE_URL`, create a long random `ADMIN_API_KEY`, and configure `CORS_ORIGINS` with the website's full origin(s), comma-separated. Start the API with `pnpm dev` for development or `pnpm start` for production. It listens on port 3000 by default.
 
 `GET /health` checks the API and database connection.
 
