@@ -23,14 +23,16 @@ app.use('/uploads', (_req, res, next) => {
   next();
 }, express.static(uploadRoot, { dotfiles: 'deny', index: false, maxAge: '1d', immutable: true }));
 
-app.get('/health', async (_req, res) => {
+async function healthCheck(_req, res) {
   try {
     await pool.query('SELECT 1');
     res.json({ status: 'ok', database: 'connected' });
   } catch (_error) {
     res.status(503).json({ status: 'error', database: 'unavailable' });
   }
-});
+}
+app.get('/health', healthCheck);
+app.get('/api/health', healthCheck);
 
 app.use('/api', api);
 app.use((error, _req, res, _next) => {

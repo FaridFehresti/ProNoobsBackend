@@ -19,7 +19,7 @@ pnpm install
 
 Copy `.env.example` to `.env`. Set `DATABASE_URL`, create a long random `ADMIN_API_KEY`, and configure `CORS_ORIGINS` with the website's full origin(s), comma-separated. Set `UPLOAD_DIR` to a persistent directory if the deployment filesystem is ephemeral. Start the API with `pnpm dev` for development or `pnpm start` for production. It listens on port 3000 by default.
 
-`GET /health` checks the API and database connection.
+`GET /health` and `GET /api/health` check the API and database connection.
 
 ## Routes
 
@@ -62,6 +62,23 @@ curl -X PUT http://localhost:3000/api/teams/1/logo \
 Team responses include a relative `logoUrl`, such as `/uploads/teams/1/<generated-name>.png`; resolve it against the API origin.
 
 Logo files are stored on disk under `UPLOAD_DIR` (defaults to `backend/uploads`) and served from `/uploads/...`. Keep that directory on persistent storage and include it in deployment backups; the database stores only the file path.
+
+### Same-domain Nginx proxy
+
+For the production URL `https://pronoobs.com/api`, add these locations inside the existing HTTPS `server` block. They send API and uploaded-logo requests to the API on localhost while leaving the static website root in place:
+
+```nginx
+location /api/ {
+    client_max_body_size 6m;
+    proxy_pass http://127.0.0.1:3000;
+    include proxy_params;
+}
+
+location /uploads/ {
+    proxy_pass http://127.0.0.1:3000;
+    include proxy_params;
+}
+```
 
 Example team payload:
 
