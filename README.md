@@ -17,7 +17,7 @@ psql -d pronoobs -f migrations/003_team_logos.sql
 pnpm install
 ```
 
-Copy `.env.example` to `.env`. Set `DATABASE_URL`, create a long random `ADMIN_API_KEY`, and configure `CORS_ORIGINS` with the website's full origin(s), comma-separated. Set `UPLOAD_DIR` to a persistent directory if the deployment filesystem is ephemeral. Start the API with `pnpm dev` for development or `pnpm start` for production. It listens on port 3000 by default.
+Copy `.env.example` to `.env`. Set `DATABASE_URL`, create a long random `ADMIN_API_KEY`, and configure `CORS_ORIGINS` with the website's full origin(s), comma-separated. Set `UPLOAD_DIR` to a persistent directory if the deployment filesystem is ephemeral. Start the API with `pnpm dev` for development or `pnpm start` for production. It binds to `127.0.0.1:3000` by default; set `HOST` and `PORT` to override these values.
 
 `GET /health` and `GET /api/health` check the API and database connection.
 

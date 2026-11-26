@@ -7,6 +7,7 @@ const api = require('./routes');
 const { uploadRoot } = require('./storage/team-logos');
 
 const app = express();
+const host = process.env.HOST || '127.0.0.1';
 const port = Number(process.env.PORT) || 3000;
 const allowedOrigins = (process.env.CORS_ORIGINS || '')
   .split(',').map((origin) => origin.trim()).filter(Boolean);
@@ -44,7 +45,7 @@ app.use((error, _req, res, _next) => {
   res.status(500).json({ error: 'Internal server error.' });
 });
 
-const server = app.listen(port, () => console.log(`ProNoobs API listening on port ${port}`));
+const server = app.listen(port, host, () => console.log(`ProNoobs API listening on ${host}:${port}`));
 
 async function shutdown() {
   server.close(async () => {
